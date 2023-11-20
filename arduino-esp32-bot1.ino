@@ -1,5 +1,9 @@
 // https://thingsboard.io/docs/samples/esp32/gpio-control-pico-kit-dht22-sensor/
 // https://github.com/thingsboard/thingsboard/issues/9450
+//
+// Examples:
+// https://learn.sparkfun.com/tutorials/air-quality-sensor---sgp40-qwiic-hookup-guide/arduino-example
+
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>       // search library manager for ArduinoOTA to install
@@ -8,6 +12,9 @@
 #include <WiFiClient.h>
 #include <ArduinoJson.h>      // search library manager for ArduinoJson to install
 #include <Adafruit_GPS.h>
+#include <Wire.h>
+#include "SparkFunBME280.h"
+#include "SparkFun_SGP40_Arduino_Library.h"
 
 // Helper macro to calculate array size
 #define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
@@ -15,13 +22,13 @@
 // WiFi access point
 #define WIFI_AP_NAME        "IOT"
 // WiFi password
-#define WIFI_PASSWORD       "dreamport!"
+#define WIFI_PASSWORD       "Dreamport1!"
 
 // See https://thingsboard.io/docs/getting-started-guides/helloworld/ 
 // to understand how to obtain an access token
 #define TOKEN               "A1_TEST_TOKEN"
 // ThingsBoard server instance.
-#define THINGSBOARD_SERVER  "172.19.25.2"
+#define THINGSBOARD_SERVER  "192.168.0.8"
 
 // Baud rate for debug serial
 #define SERIAL_DEBUG_BAUD    115200
@@ -32,6 +39,8 @@
 
 // Connect to the GPS on the hardware port
 Adafruit_GPS GPS(&GPSSerial);
+SGP40 mySensor; //create an object of the SGP40 class
+BME280 myBMESensor;
 
 constexpr uint16_t MAX_MESSAGE_SIZE = 128;
 constexpr uint16_t THINGSBOARD_PORT = 1883;
@@ -156,6 +165,24 @@ void setup() {
     // Ask for firmware version
     GPSSerial.println(PMTK_Q_RELEASE);
 
+    Wire.begin();
+
+    //mySensor.enableDebugging(); // Uncomment this line to print useful debug messages to Serial
+
+    //Initialize sensor
+    if (mySensor.begin() == false)
+    {
+      Serial.println(F("SGP40 not detected. Check connections. Freezing..."));
+      while (1)
+        ; // Do nothing more
+    }
+
+    if (myBMESensor.beginI2C() == false) //Begin communication over I2C
+    {
+      Serial.println("The sensor did not respond. Please check wiring.");
+      while(1); //Freeze
+    }
+
     ArduinoOTA
       .onStart([]() {
         String type;
@@ -214,15 +241,15 @@ void loop( ) {
     send_passed += quant;
 
     // Reconnect to WiFi, if needed
-    if (WiFi.status() != WL_CONNECTED) {
-      reconnect();
-      return;
+    if ( WiFi.status() != WL_CONNECTED ) {
+        reconnect();
+        return;
     }
 
-    if (!tb.connected()) {
-        if (!tb.connect(THINGSBOARD_SERVER, TOKEN, THINGSBOARD_PORT)) {
-          Serial.println("Failed to connect");
-          return;
+    if ( !tb.connected() ) {
+        if ( !tb.connect(THINGSBOARD_SERVER, TOKEN, THINGSBOARD_PORT) ) {
+            Serial.println("Failed to connect to ThingsBoard Server...");
+            return;
         }
     }
 
@@ -280,7 +307,14 @@ void loop( ) {
     tb.sendTelemetryData("latitude", GPS.latitude);
     tb.sendTelemetryData("longitude", GPS.longitude);
     tb.sendTelemetryData("altitude", GPS.altitude);
-    tb.sendTelemetryData("angle", GPS.angle);          
+    tb.sendTelemetryData("angle", GPS.angle);    
+
+    tb.sendTelemetryData("voc", mySensor.getVOCindex() ); 
+
+    tb.sendTelemetryData("temperature", myBMESensor.readFloatHumidity() );
+    tb.sendTelemetryData("pressure", myBMESensor.readFloatPressure() );
+    tb.sendTelemetryData("altitde", myBMESensor.readFloatAltitudeFeet() );
+    tb.sendTelemetryData("tempf", myBMESensor.readTempF());      
     send_passed = 0;
   }
 
